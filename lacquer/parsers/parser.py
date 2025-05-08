@@ -124,7 +124,7 @@ def p_limit_opt(p):
 def p_nonjoin_query_expression(p):
     r"""nonjoin_query_expression : nonjoin_query_term
                         | nonjoin_query_expression UNION set_quantifier_opt nonjoin_query_term
-                        | nonjoin_query_expression EXCEPT set_quantifier_opt  nonjoin_query_term"""
+                        | nonjoin_query_expression EXCEPT set_quantifier_opt nonjoin_query_term"""
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -134,7 +134,7 @@ def p_nonjoin_query_expression(p):
         if p.slice[2].type == "UNION":
             p[0] = Union(p.lineno(1), p.lexpos(1), relations=[left, right], distinct=distinct)
         else:
-            p[0] = Except(p.lineno(1), p.lexpos(1), left=p[1], right=p[3], distinct=distinct)
+            p[0] = Except(p.lineno(1), p.lexpos(1), left=left, right=right, distinct=distinct)
 
 
 # non-join query term
@@ -274,7 +274,7 @@ def p_select_item(p):
 
 
 def p_derived_column(p):
-    r"""derived_column : value_expression alias_opt"""
+    r"""derived_column : LPAREN value_expression RPAREN alias_opt"""
     p[0] = SingleColumn(p.lineno(1), p.lexpos(1), alias=p[2], expression=p[1])
 
 
@@ -339,8 +339,9 @@ def p_natural_join(p):
     r"""natural_join : table_reference NATURAL join_type JOIN table_primary"""
     right = p[5]
     criteria = NaturalJoin()
-    join_type = "INNER"
-    p[0] = Join(p.lineno(1), p.lexpos(1), join_type=join_type,
+    parsed_join_type_token = p[3]
+    actual_join_type = parsed_join_type_token if parsed_join_type_token else "INNER"
+    p[0] = Join(p.lineno(1), p.lexpos(1), join_type=actual_join_type,
                 left=p[1], right=right, criteria=criteria)
 
 
@@ -393,11 +394,11 @@ def p_aliased_relation(p):
 
 
 def p_derived_table(p):
-    r"""derived_table : subquery alias_opt"""
-    if p[2]:
-        p[0] = AliasedRelation(p.lineno(1), p.lexpos(1), relation=p[1], alias=p[2])
+    r"""derived_table : LPAREN query_expression RPAREN alias_opt"""
+    if p[4]:
+        p[0] = AliasedRelation(p.lineno(1), p.lexpos(1), relation=p[2], alias=p[4])
     else:
-        p[0] = p[1]
+        p[0] = p[2]
 
 
 def p_alias_opt(p):
@@ -603,10 +604,10 @@ def p_value(p):
 
 
 def p_function_call(p):
-    r"""function_call : qualified_name LPAREN call_args RPAREN"""
-    # FIXME: Distinct and arguments may need to be corrected
-    distinct = p[3] is None or (isinstance(p[3], str) and p[3].upper() == "DISTINCT")
-    p[0] = FunctionCall(p.lineno(1), p.lexpos(1), name=p[1], distinct=distinct, arguments=p[3])
+    r"""function_call : qualified_name LPAREN func_arg_modifier_opt call_args RPAREN"""
+    distinct = p[3] is None or (isinstance(p[3], str) and p[3].upper() in "DISTINCT")
+    # FIXME: Support `func(*)`, fix DISTINCT
+    p[0] = FunctionCall(p.lineno(1), p.lexpos(1), name=p[1], distinct=distinct, arguments=p[4])
 
 
 def p_call_args(p):
@@ -664,6 +665,11 @@ def p_else_clause(p):
     r"""else_opt : ELSE value_expression
                  | empty"""
     p[0] = p[2] if p[1] else None
+
+def p_func_arg_modifier_opt(p):
+    r"""func_arg_modifier_opt : DISTINCT | ALL
+                              | empty"""
+    p[0] = p[1]
 
 
 def p_call_list(p):
